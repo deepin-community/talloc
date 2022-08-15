@@ -1,0 +1,68 @@
+Source: talloc
+Section: devel
+Priority: optional
+Maintainer: Deepin Developer <deepin-dev@deepin.org>
+Uploaders: Deepin Packages Builder <packages@deepin.org>
+           Mathieu Parent <sathieu@debian.org>,
+           Michael Tokarev <mjt@tls.msk.ru>
+Homepage: https://talloc.samba.org/
+Build-Depends: debhelper-compat (= 13),
+               dh-exec,
+               dh-python,
+               docbook-xml,
+               docbook-xsl,
+               libpopt-dev,
+               python3-dev,
+               xsltproc
+Rules-Requires-Root: no
+Standards-Version: 4.6.0
+#Vcs-Browser
+#Vcs-Git
+
+Package: libtalloc2
+Multi-Arch: same
+Pre-Depends: ${misc:Pre-Depends}
+Architecture: any
+Depends: ${misc:Depends}, ${shlibs:Depends}
+Breaks: python3-talloc (<< 2.1.13-2~)
+Section: libs
+Description: hierarchical pool based memory allocator
+ A hierarchical pool based memory allocator with destructors. It uses
+ reference counting to determine when memory should be freed.
+
+Package: libtalloc-dev
+Section: libdevel
+Depends: libtalloc2 (=${binary:Version}), pkg-config, ${misc:Depends}
+Architecture: any
+Multi-Arch: same
+Description: hierarchical pool based memory allocator - development files
+ A hierarchical pool based memory allocator with destructors. It uses
+ reference counting to determine when memory should be freed.
+ .
+ This package contains the development files.
+
+Package: python3-talloc
+Multi-Arch: same
+Section: python
+Architecture: any
+Depends: libtalloc2 (= ${binary:Version}),
+         ${misc:Depends},
+         ${python3:Depends},
+         ${shlibs:Depends}
+Provides: ${python3:Provides}
+Description: hierarchical pool based memory allocator - Python3 bindings
+ A hierarchical pool based memory allocator with destructors. It uses
+ reference counting to determine when memory should be freed.
+ .
+ This package contains the Python 3 bindings.
+
+Package: python3-talloc-dev
+Architecture: any
+Multi-Arch: same
+Section: libdevel
+Depends: pkg-config, python3-talloc (= ${binary:Version}), ${misc:Depends}
+Description: talloc Python 3 bindings - development files
+ A hierarchical pool based memory allocator with destructors. It uses
+ reference counting to determine when memory should be freed.
+ .
+ This package contains the development files for the Python 3 bindings.

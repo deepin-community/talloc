@@ -1,0 +1,69 @@
+#!/usr/bin/make -f
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+include /usr/share/dpkg/architecture.mk
+include /usr/share/dpkg/buildflags.mk
+
+CFLAGS += -g -Wall
+
+DESTDIR=$(CURDIR)/debian/tmp
+
+conf_args = --prefix=/usr --disable-rpath-install --disable-rpath --bundled-libraries=NONE
+conf_args += --build $(DEB_BUILD_GNU_TYPE) --host $(DEB_HOST_GNU_TYPE)
+conf_args += --libdir=/usr/lib/$(DEB_HOST_MULTIARCH)
+conf_args += -v
+
+%:
+	dh $@ --with python3
+
+override_dh_auto_configure:
+	LDFLAGS="$(LDFLAGS)" CFLAGS="$(CFLAGS)" CPPFLAGS="$(CPPFLAGS)" ./configure $(conf_args)
+
+override_dh_auto_build:
+	$(MAKE) all V=1
+
+override_dh_auto_test:
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	LD_LIBRARY_PATH=bin/shared ./bin/talloc_testsuite
+endif
+
+override_dh_install:
+	DEB_PY3_INCDIR=$(shell python3-config --includes | sed 's,^-I\([^ ]*\).*,\1,') \
+		dh_install
+
+get-packaged-orig-source:
+	./debian/build-orig.sh
+
+override_dh_auto_clean:
+	[ ! -f Makefile ] || $(MAKE) distclean
+	rm -rf bin
+	# Waf should be doing this; see
+	# https://bugzilla.samba.org/show_bug.cgi?id=8854
+	rm -f .lock-wscript
+	# Waf should be doing this; see
+	# https://bugzilla.samba.org/show_bug.cgi?id=8855
+	rm -rf buildtools/wafsamba/__pycache__ \
+	       third_party/waf/waflib/__pycache__/ \
+	       third_party/waf/waflib/extras/__pycache__/ \
+	       third_party/waf/waflib/Tools/__pycache__/
+
+override_dh_auto_install:
+	$(MAKE) install DESTDIR=$(DESTDIR)
+	# Waf really should be doing this:
+	ar -rc libtalloc.a bin/default/talloc*.o
+	mv libtalloc.a $(DESTDIR)/usr/lib/$(DEB_HOST_MULTIARCH)
+	#HACK alert: fix up wrong markers in the common include file
+	sed -i 's/^_PUBLIC_ //' ${DESTDIR}/usr/include/talloc.h
+	touch --reference=talloc.h ${DESTDIR}/usr/include/talloc.h
+
+override_dh_missing:
+	dh_missing --fail-missing
+
+override_dh_makeshlibs:
+	dh_makeshlibs -plibtalloc2 -- -c4
+	DEB_PY3_EXTENSION_SUFFIX=$(shell python3-config --extension-suffix | tr '_' '-') \
+	  DEB_PY3_EXTENSION_UPCASE=$(shell python3-config --extension-suffix | sed 's/\.so$$//' | tr 'a-z-' 'A-Z_') \
+	  debian/python3-talloc.symbols.in > debian/python3-talloc.symbols
+	dh_makeshlibs -ppython3-talloc -Xtalloc. -- -c3
+	rm debian/python3-talloc.symbols
