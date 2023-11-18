@@ -1,2 +1,2 @@
-# Variables defined in debian/rules
-dh-exec-subst-unknown-variable debian/python3-talloc-dev.install:2 DEB_PY3_INCDIR
+# these are buildtools examples not talloc examples:
+talloc source: package-does-not-install-examples *buildtools/examples/*

@@ -1,69 +1,104 @@
 #!/usr/bin/make -f
+SHELL = /bin/sh -e
 
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export DEB_CFLAGS_MAINT_APPEND = -g -Wall
+export DPKG_GENSYMBOLS_CHECK_LEVEL = 4
 
-include /usr/share/dpkg/architecture.mk
+# Fast version of dpkg/architecture.mk defining all vars in one go
+ifeq (${DEB_HOST_MULTIARCH},)
+   $(foreach d, $(shell dpkg-architecture | sed 's/=/?=/'), $(eval export $d))
+endif
+include /usr/share/dpkg/buildtools.mk
 include /usr/share/dpkg/buildflags.mk
+include /usr/share/dpkg/pkg-info.mk
+V := $(if $(filter terse, ${DEB_BUILD_OPTIONS}),,1)
+WAF := PYTHONHASHSEED=1 ./buildtools/bin/waf \
+	$(patsubst parallel=%,-j%,$(filter parallel=%,${DEB_BUILD_OPTIONS}))
 
-CFLAGS += -g -Wall
-
-DESTDIR=$(CURDIR)/debian/tmp
-
-conf_args = --prefix=/usr --disable-rpath-install --disable-rpath --bundled-libraries=NONE
-conf_args += --build $(DEB_BUILD_GNU_TYPE) --host $(DEB_HOST_GNU_TYPE)
-conf_args += --libdir=/usr/lib/$(DEB_HOST_MULTIARCH)
-conf_args += -v
-
-%:
-	dh $@ --with python3
-
-override_dh_auto_configure:
-	LDFLAGS="$(LDFLAGS)" CFLAGS="$(CFLAGS)" CPPFLAGS="$(CPPFLAGS)" ./configure $(conf_args)
-
-override_dh_auto_build:
-	$(MAKE) all V=1
-
-override_dh_auto_test:
-ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
-	LD_LIBRARY_PATH=bin/shared ./bin/talloc_testsuite
+ifeq (linux,${DEB_HOST_ARCH_OS})
+ifneq (${DEB_HOST_GNU_TYPE},${DEB_BUILD_GNU_TYPE})
+# for cross-build or build with foreign python binary (it is _gnu0_i386-gnu on hurd)
+export _PYTHON_SYSCONFIGDATA_NAME=_sysconfigdata__${DEB_HOST_ARCH_OS}_${DEB_HOST_MULTIARCH}
+endif
 endif
 
-override_dh_install:
-	DEB_PY3_INCDIR=$(shell python3-config --includes | sed 's,^-I\([^ ]*\).*,\1,') \
-		dh_install
+# All supported installed python versions we build for
+export PY3VERSIONS := $(or ${PY3VERSIONS}, $(shell py3versions -i))
 
-get-packaged-orig-source:
-	./debian/build-orig.sh
+DESTDIR := ${CURDIR}/debian/tmp
 
-override_dh_auto_clean:
-	[ ! -f Makefile ] || $(MAKE) distclean
-	rm -rf bin
-	# Waf should be doing this; see
-	# https://bugzilla.samba.org/show_bug.cgi?id=8854
-	rm -f .lock-wscript
-	# Waf should be doing this; see
-	# https://bugzilla.samba.org/show_bug.cgi?id=8855
-	rm -rf buildtools/wafsamba/__pycache__ \
-	       third_party/waf/waflib/__pycache__/ \
-	       third_party/waf/waflib/extras/__pycache__/ \
-	       third_party/waf/waflib/Tools/__pycache__/
+build-arch build-indep build \
+install-arch install-indep install \
+binary-arch binary-indep binary \
+: %:
+	dh $@
 
-override_dh_auto_install:
-	$(MAKE) install DESTDIR=$(DESTDIR)
-	# Waf really should be doing this:
-	ar -rc libtalloc.a bin/default/talloc*.o
-	mv libtalloc.a $(DESTDIR)/usr/lib/$(DEB_HOST_MULTIARCH)
+# Build in bld/pyNN/ subdirs (named after python version),
+# Since wafsamba can't build things in a named subdir,
+# we have to copy (link) whole source dir into each build subdir.
+
+.NOTPARALLEL: # don't run commands at this level in parallel
+
+py-targets = $(patsubst %, bld/%/$(strip $1), ${PY3VERSIONS})
+
+override_dh_auto_configure: $(call py-targets, stamp-config)
+$(call py-targets, stamp-config): %/stamp-config:
+	@echo "=== running configure in $* ==="
+	mkdir -p $*
+	cp -al $$(ls -1 | egrep -v '^(bld|debian)$$') $*
+	cd $*; \
+	    CC="${CC}" CPP="${CPP}" LD="${LD}" PKGCONFIG="${PKG_CONFIG}" \
+	    CPPFLAGS="${CPPFLAGS}" CFLAGS="${CFLAGS}" LDFLAGS="${LDFLAGS}" \
+	    PYTHON=$(notdir $*) PYTHON_CONFIG=${DEB_HOST_MULTIARCH}-$(notdir $*)-config \
+	    ${WAF} -j1 -C configure \
+		--prefix=/usr \
+		--libdir=/usr/lib/${DEB_HOST_MULTIARCH} \
+		--disable-rpath --disable-rpath-install \
+		--bundled-libraries=NONE \
+
+	touch $@
+
+override_dh_auto_build: $(call py-targets, stamp-build)
+$(call py-targets, stamp-build): %/stamp-build: %/stamp-config
+	@echo "=== running build in $* ==="
+	cd $*; ${WAF} $(if $V,-v) build
+	# Waf should be doing this..
+	ar rc $*/bin/libtalloc.a $*/bin/default/talloc*.o
+
+# the testsuite does not test python bindings so there's no reason to test all pyversions
+override_dh_auto_test: \
+  $(if $(filter nocheck,${DEB_BUILD_OPTIONS}), , $(firstword $(call py-targets, test)))
+$(call py-targets, test): %/test: %/stamp-build
+	echo "=== running test in $* ==="
+	cd $*; LD_LIBRARY_PATH=bin/shared ./bin/talloc_testsuite
+
+$(call py-targets, install): %/install: %/stamp-build
+	@echo "=== running install in $* ==="
+	cd $*; ${WAF} install --destdir=${DESTDIR}
+	cp $*/bin/libtalloc.a ${DESTDIR}/usr/lib/${DEB_HOST_MULTIARCH}/
+override_dh_auto_install: $(call py-targets, install)
 	#HACK alert: fix up wrong markers in the common include file
-	sed -i 's/^_PUBLIC_ //' ${DESTDIR}/usr/include/talloc.h
-	touch --reference=talloc.h ${DESTDIR}/usr/include/talloc.h
-
-override_dh_missing:
-	dh_missing --fail-missing
+	sed -i 's/^_PUBLIC_ //' \
+		${DESTDIR}/usr/include/talloc.h \
+		${DESTDIR}/usr/include/pytalloc.h
+	# ..and remove the #define itself
+	patch --batch ${DESTDIR}/usr/include/talloc.h debian/header-remove-_PUBLIC_-define.patch
 
 override_dh_makeshlibs:
 	dh_makeshlibs -plibtalloc2 -- -c4
-	DEB_PY3_EXTENSION_SUFFIX=$(shell python3-config --extension-suffix | tr '_' '-') \
-	  DEB_PY3_EXTENSION_UPCASE=$(shell python3-config --extension-suffix | sed 's/\.so$$//' | tr 'a-z-' 'A-Z_') \
-	  debian/python3-talloc.symbols.in > debian/python3-talloc.symbols
-	dh_makeshlibs -ppython3-talloc -Xtalloc. -- -c3
+	for pv in ${PY3VERSIONS}; do \
+	    suff=$$(${DEB_HOST_MULTIARCH}-$$pv-config --extension-suffix | tr _ -); \
+	    SUFF=$$(echo "$${suff%.so}" | tr a-z- A-Z_)_${DEB_VERSION_UPSTREAM}; \
+	    echo "libpytalloc-util$${suff}.2 python3-talloc #MINVER#"; \
+	    echo " PYTALLOC_UTIL$${SUFF}@PYTALLOC_UTIL$${SUFF} ${DEB_VERSION_UPSTREAM}"; \
+	    cat debian/python3-talloc.symbols.in; \
+	done > debian/python3-talloc.symbols
+	dh_makeshlibs -ppython3-talloc -X/talloc.cpython -- -c3
 	rm debian/python3-talloc.symbols
+
+clean:
+	dh_clean bld/
+
+get-packaged-orig-source:
+	./debian/build-orig.sh
