@@ -1,23 +1,21 @@
 Source: talloc
 Section: devel
 Priority: optional
-Maintainer: Deepin Developer <deepin-dev@deepin.org>
-Uploaders: Deepin Packages Builder <packages@deepin.org>
+Maintainer: Debian Samba Maintainers <pkg-samba-maint@lists.alioth.debian.org>
+Uploaders: Jelmer Vernooĳ <jelmer@debian.org>,
            Mathieu Parent <sathieu@debian.org>,
            Michael Tokarev <mjt@tls.msk.ru>
 Homepage: https://talloc.samba.org/
 Build-Depends: debhelper-compat (= 13),
-               dh-exec,
-               dh-python,
-               docbook-xml,
-               docbook-xsl,
+               dh-sequence-python3,
+               docbook-xml, docbook-xsl, xsltproc,
                libpopt-dev,
-               python3-dev,
-               xsltproc
+# use {python3,libpython3}-ALL-dev to build for all python3 versions (+#904999):
+               python3-dev:any | python3-dev, libpython3-dev,
 Rules-Requires-Root: no
-Standards-Version: 4.6.0
-#Vcs-Browser
-#Vcs-Git
+Standards-Version: 4.6.2
+Vcs-Browser: https://salsa.debian.org/samba-team/talloc
+Vcs-Git: https://salsa.debian.org/samba-team/talloc.git
 
 Package: libtalloc2
 Multi-Arch: same
@@ -49,7 +47,6 @@ Depends: libtalloc2 (= ${binary:Version}),
          ${misc:Depends},
          ${python3:Depends},
          ${shlibs:Depends}
-Provides: ${python3:Provides}
 Description: hierarchical pool based memory allocator - Python3 bindings
  A hierarchical pool based memory allocator with destructors. It uses
  reference counting to determine when memory should be freed.
