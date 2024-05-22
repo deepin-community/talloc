@@ -1,3 +1,9 @@
+talloc (2.4.2-1) unstable; urgency=medium
+
+  * new upstream (minor) release
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Mon, 29 Jan 2024 20:14:03 +0300
+
 talloc (2.4.1-2) unstable; urgency=medium
 
   * d/rules: wrap _PYTHON_SYSCONFIGDATA_NAME setting to cross-compile case
