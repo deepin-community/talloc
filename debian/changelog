@@ -1,3 +1,9 @@
+talloc (2.4.2-1deepin1) unstable; urgency=medium
+
+  * No source change upload against python 3.12.
+
+ -- Tianyu Chen <sweetyfish@deepin.org>  Wed, 03 Jul 2024 05:22:51 +0200
+
 talloc (2.4.2-1) unstable; urgency=medium
 
   * new upstream (minor) release
